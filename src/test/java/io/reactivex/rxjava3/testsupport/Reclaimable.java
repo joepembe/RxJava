@@ -13,11 +13,16 @@
 
 package io.reactivex.rxjava3.testsupport;
 
+import javax.management.MBeanServer;
+import java.io.IOException;
+import java.lang.management.ManagementFactory;
 import java.lang.ref.SoftReference;
+import java.time.Instant;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Objects;
 
+import com.sun.management.HotSpotDiagnosticMXBean;
 import io.reactivex.rxjava3.annotations.NonNull;
 
 /**
@@ -86,6 +91,14 @@ public final class Reclaimable<R> {
         return r;
     }
 
+    public R referent() {
+        R r = referent;
+        if (r == null) {
+            throw new IllegalStateException("referent was already removed");
+        }
+        return r;
+    }
+
     /**
      * Tests whether the referent associated with this {@code Reclaimable} instance has been successfully reclaimed by
      * the garbage collector. This method always returns {@code false} if {@link #remove()} has not yet been
@@ -131,6 +144,22 @@ public final class Reclaimable<R> {
         return "Reclaimable(name=" + name + ", referent=" +  referent + ")";
     }
 
+    private static void dumpHeap(String path) {
+        try {
+            getHotSpotDiagnosticMXBean().dumpHeap(path, true);
+            System.out.println("Heap dumped to: " + path);
+        } catch (RuntimeException | IOException ex) {
+            System.err.println("Failed to dump heap to path: " + path);
+            ex.printStackTrace(System.err);
+        }
+    }
+
+    private static HotSpotDiagnosticMXBean getHotSpotDiagnosticMXBean() throws IOException {
+        MBeanServer mBeanServer = ManagementFactory.getPlatformMBeanServer();
+        return ManagementFactory.newPlatformMXBeanProxy(mBeanServer, "com.sun.management:type=HotSpotDiagnostic",
+                HotSpotDiagnosticMXBean.class);
+    }
+
     /**
      * A set of fluent operators that can be used to verify the reclamation status of {@code Reclaimable} instances.
      */
@@ -149,6 +178,7 @@ public final class Reclaimable<R> {
                 throw new IllegalStateException("referent has not been removed: " + reclaimable);
             }
             if (!reclaimable.isReclaimed()) {
+                dumpHeap("./heap-dump-" + reclaimable.name + "-" + Instant.now() + ".hprof");
                 throw new AssertionError("expected referent to be reclaimed: " + reclaimable);
             }
             return this;
